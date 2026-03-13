@@ -1,22 +1,13 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { formatINR } from '../../utils/format';
-import type { Transaction } from '../../types/expense';
 
 interface Props {
-  transactions: Transaction[];
+  totalIncome: number;
+  totalExpenses: number;
+  net: number;
 }
 
-export default function ExpenseSummary({ transactions }: Props) {
-  const totalIncome = transactions
-    .filter((t) => t.type === 'income')
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const totalExpenses = transactions
-    .filter((t) => t.type === 'expense')
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const net = totalIncome - totalExpenses;
-
+export default function ExpenseSummary({ totalIncome, totalExpenses, net }: Props) {
   return (
     <div className="grid grid-cols-3 gap-3">
       <Card className="rounded-none border-border">

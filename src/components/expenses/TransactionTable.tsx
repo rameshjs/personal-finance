@@ -1,3 +1,4 @@
+import moment from 'moment';
 import {
   Table,
   TableBody,
@@ -78,6 +79,5 @@ export default function TransactionTable({ transactions, onDelete }: Props) {
 }
 
 function formatDate(dateStr: string): string {
-  const d = new Date(dateStr + 'T00:00:00');
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+  return moment(dateStr, 'YYYY-MM-DD').format('DD MMM');
 }
