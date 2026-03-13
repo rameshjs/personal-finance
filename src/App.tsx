@@ -7,15 +7,18 @@ import {
   BriefcaseDollarIcon,
   Wallet01Icon,
   Settings02Icon,
+  Analytics01Icon,
 } from '@hugeicons/core-free-icons';
 import InvestmentSection from './components/investments/InvestmentSection';
 import OtherInvestmentSection from './components/other-investments/OtherInvestmentSection';
 import ExpenseSection from './components/expenses/ExpenseSection';
 import DashboardSection from './components/dashboard/DashboardSection';
 import SettingsSection from './components/settings/SettingsSection';
+import ReportSection from './components/report/ReportSection';
 
 const NAV_ITEMS = [
   { to: '/dashboard',   label: 'Dashboard',    icon: DashboardSquare01Icon },
+  { to: '/report',      label: 'Report',       icon: Analytics01Icon       },
   { to: '/investments', label: 'Investments',  icon: ChartLineData01Icon   },
   { to: '/other',       label: 'Other',        icon: BriefcaseDollarIcon   },
   { to: '/expenses',    label: 'Expenses',     icon: Wallet01Icon          },
@@ -63,6 +66,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardSection />} />
+          <Route path="/report" element={<ReportSection />} />
           <Route path="/investments" element={<InvestmentSection />} />
           <Route path="/other" element={<OtherInvestmentSection />} />
           <Route path="/expenses" element={<ExpenseSection />} />
