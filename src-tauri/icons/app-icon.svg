@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- Background -->
+  <rect width="512" height="512" rx="110" fill="#0f172a"/>
+
+  <defs>
+    <!-- Area fill gradient -->
+    <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#22c55e" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#22c55e" stop-opacity="0.02"/>
+    </linearGradient>
+    <!-- Glow filter for the dot -->
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Area under chart line -->
+  <path
+    d="M72 390 L156 316 L240 268 L324 198 L408 118 L408 430 L72 430 Z"
+    fill="url(#areaGrad)"
+  />
+
+  <!-- Subtle grid lines -->
+  <line x1="72" y1="280" x2="440" y2="280" stroke="#1e293b" stroke-width="2"/>
+  <line x1="72" y1="360" x2="440" y2="360" stroke="#1e293b" stroke-width="2"/>
+
+  <!-- Chart line -->
+  <polyline
+    points="72,390 156,316 240,268 324,198 408,118"
+    stroke="#22c55e"
+    stroke-width="18"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Waypoint dots -->
+  <circle cx="156" cy="316" r="9" fill="#16a34a"/>
+  <circle cx="240" cy="268" r="9" fill="#16a34a"/>
+  <circle cx="324" cy="198" r="9" fill="#16a34a"/>
+
+  <!-- End dot with glow -->
+  <circle cx="408" cy="118" r="26" fill="#22c55e" opacity="0.20" filter="url(#glow)"/>
+  <circle cx="408" cy="118" r="14" fill="#4ade80"/>
+
+  <!-- Baseline -->
+  <rect x="60" y="432" width="392" height="6" rx="3" fill="#1e293b"/>
+</svg>
