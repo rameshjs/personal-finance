@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Investment, MFSearchResult, NewInvestment } from '../types/investment';
 import type { NewOtherInvestment, OtherInvestment } from '../types/other-investment';
 import type { ExpenseCategory, NewExpenseCategory, NewTransaction, Transaction } from '../types/expense';
+import type { DashboardReport } from '../types/dashboard';
 
 export const api = {
   getInvestments: (): Promise<Investment[]> =>
@@ -48,4 +49,11 @@ export const api = {
 
   deleteTransaction: (id: string): Promise<Transaction[]> =>
     invoke('delete_transaction', { id }),
+
+  getDashboardReport: (params: {
+    from_date?: string | null
+    to_date?: string | null
+    category_id?: string | null
+  }): Promise<DashboardReport> =>
+    invoke('get_dashboard_report', params),
 };
