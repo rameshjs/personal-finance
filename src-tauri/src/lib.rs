@@ -33,6 +33,12 @@ pub fn run() {
             commands::add_other_investment,
             commands::delete_other_investment,
             commands::sync_other_prices,
+            commands::get_expense_categories,
+            commands::add_expense_category,
+            commands::delete_expense_category,
+            commands::get_transactions,
+            commands::add_transaction,
+            commands::delete_transaction,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

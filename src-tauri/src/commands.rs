@@ -2,9 +2,9 @@ use rusqlite::params;
 use serde::Deserialize;
 use tauri::State;
 
-use crate::db::{db_get_all, db_get_all_other, now_ms};
+use crate::db::{db_get_all, db_get_all_other, db_get_categories, db_get_transactions, now_ms};
 use crate::market::{fetch_other_price, fetch_price};
-use crate::models::{AppState, Investment, MFSearchResult, OtherInvestment};
+use crate::models::{AppState, ExpenseCategory, Investment, MFSearchResult, OtherInvestment, Transaction};
 
 #[tauri::command]
 pub async fn get_investments(state: State<'_, AppState>) -> Result<Vec<Investment>, String> {
@@ -286,6 +286,104 @@ pub async fn sync_other_prices(
     }
 
     Ok(db_get_all_other(&conn))
+}
+
+#[tauri::command]
+pub async fn get_expense_categories(
+    state: State<'_, AppState>,
+) -> Result<Vec<ExpenseCategory>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(db_get_categories(&conn))
+}
+
+#[tauri::command]
+pub async fn add_expense_category(
+    state: State<'_, AppState>,
+    category: ExpenseCategory,
+) -> Result<Vec<ExpenseCategory>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let next_order: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) FROM expense_categories",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(-1)
+        + 1;
+
+    conn.execute(
+        "INSERT INTO expense_categories (id, name, type, is_default, sort_order)
+         VALUES (?1, ?2, ?3, 0, ?4)",
+        params![category.id, category.name, category.category_type, next_order],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(db_get_categories(&conn))
+}
+
+#[tauri::command]
+pub async fn delete_expense_category(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<ExpenseCategory>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM expense_categories WHERE id=?1 AND is_default=0",
+        params![id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(db_get_categories(&conn))
+}
+
+#[tauri::command]
+pub async fn get_transactions(state: State<'_, AppState>) -> Result<Vec<Transaction>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(db_get_transactions(&conn))
+}
+
+#[tauri::command]
+pub async fn add_transaction(
+    state: State<'_, AppState>,
+    transaction: Transaction,
+) -> Result<Vec<Transaction>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let next_order: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) FROM transactions",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(-1)
+        + 1;
+
+    conn.execute(
+        "INSERT INTO transactions (id, amount, description, category_id, date, type, created_at, sort_order)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            transaction.id,
+            transaction.amount,
+            transaction.description,
+            transaction.category_id,
+            transaction.date,
+            transaction.transaction_type,
+            transaction.created_at,
+            next_order,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(db_get_transactions(&conn))
+}
+
+#[tauri::command]
+pub async fn delete_transaction(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<Transaction>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM transactions WHERE id=?1", params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(db_get_transactions(&conn))
 }
 
 #[tauri::command]
