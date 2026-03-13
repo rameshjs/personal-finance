@@ -101,9 +101,7 @@ export default function DashboardSection() {
 
   return (
     <div className="p-4 space-y-5">
-      <div className="flex items-center justify-between">
-        <h1 className="text-sm font-semibold tracking-widest text-muted-foreground">DASHBOARD</h1>
-      </div>
+      <h1 className="text-sm font-semibold tracking-widest text-muted-foreground">DASHBOARD</h1>
 
       {/* Filters */}
       <div className="flex items-center gap-2 flex-wrap">
