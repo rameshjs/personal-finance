@@ -2,9 +2,9 @@ use rusqlite::params;
 use serde::Deserialize;
 use tauri::State;
 
-use crate::db::{db_get_all, db_get_all_other, db_get_categories, db_get_transactions, now_ms};
+use crate::db::{db_get_all, db_get_all_other, db_get_categories, db_get_dashboard_report, db_get_transactions, now_ms};
 use crate::market::{fetch_other_price, fetch_price};
-use crate::models::{AppState, ExpenseCategory, Investment, MFSearchResult, OtherInvestment, Transaction};
+use crate::models::{AppState, DashboardReport, ExpenseCategory, Investment, MFSearchResult, OtherInvestment, Transaction};
 
 #[tauri::command]
 pub async fn get_investments(state: State<'_, AppState>) -> Result<Vec<Investment>, String> {
@@ -384,6 +384,22 @@ pub async fn delete_transaction(
     conn.execute("DELETE FROM transactions WHERE id=?1", params![id])
         .map_err(|e| e.to_string())?;
     Ok(db_get_transactions(&conn))
+}
+
+#[tauri::command]
+pub async fn get_dashboard_report(
+    state: State<'_, AppState>,
+    from_date: Option<String>,
+    to_date: Option<String>,
+    category_id: Option<String>,
+) -> Result<DashboardReport, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(db_get_dashboard_report(
+        &conn,
+        from_date.as_deref(),
+        to_date.as_deref(),
+        category_id.as_deref(),
+    ))
 }
 
 #[tauri::command]

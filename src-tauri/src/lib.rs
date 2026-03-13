@@ -39,6 +39,7 @@ pub fn run() {
             commands::get_transactions,
             commands::add_transaction,
             commands::delete_transaction,
+            commands::get_dashboard_report,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

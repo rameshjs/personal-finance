@@ -1,6 +1,6 @@
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 
-use crate::models::{ExpenseCategory, Investment, OtherInvestment, Transaction};
+use crate::models::{CategorySummary, DashboardReport, ExpenseCategory, Investment, MonthlyTrend, OtherInvestment, Transaction};
 
 pub fn db_init(conn: &Connection) {
     conn.execute_batch(
@@ -185,6 +185,184 @@ pub fn db_get_transactions(conn: &Connection) -> Vec<Transaction> {
     .expect("query failed")
     .filter_map(|r| r.ok())
     .collect()
+}
+
+pub fn db_get_dashboard_report(
+    conn: &Connection,
+    from_date: Option<&str>,
+    to_date: Option<&str>,
+    category_id: Option<&str>,
+) -> DashboardReport {
+    // 1. Summary totals filtered by all params
+    let (total_income, total_expense, tx_count) = conn
+        .query_row(
+            "SELECT
+               SUM(CASE WHEN type='income' THEN amount ELSE 0 END),
+               SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),
+               COUNT(*)
+             FROM transactions
+             WHERE (?1 IS NULL OR date >= ?1)
+               AND (?2 IS NULL OR date <= ?2)
+               AND (?3 IS NULL OR category_id = ?3)",
+            params![from_date, to_date, category_id],
+            |row| {
+                Ok((
+                    row.get::<_, f64>(0).unwrap_or(0.0),
+                    row.get::<_, f64>(1).unwrap_or(0.0),
+                    row.get::<_, i64>(2).unwrap_or(0),
+                ))
+            },
+        )
+        .unwrap_or((0.0, 0.0, 0));
+
+    let net = total_income - total_expense;
+    let savings_rate = if total_income > 0.0 {
+        Some((net / total_income) * 100.0)
+    } else {
+        None
+    };
+
+    // 2. Expense breakdown by category
+    let expense_breakdown: Vec<CategorySummary> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT t.category_id, COALESCE(c.name, 'Unknown'), SUM(t.amount), COUNT(*)
+                 FROM transactions t
+                 LEFT JOIN expense_categories c ON t.category_id = c.id
+                 WHERE t.type = 'expense'
+                   AND (?1 IS NULL OR t.date >= ?1)
+                   AND (?2 IS NULL OR t.date <= ?2)
+                   AND (?3 IS NULL OR t.category_id = ?3)
+                 GROUP BY t.category_id
+                 ORDER BY SUM(t.amount) DESC",
+            )
+            .expect("prepare failed");
+        stmt.query_map(params![from_date, to_date, category_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })
+        .expect("query failed")
+        .filter_map(|r| r.ok())
+        .map(|(cid, cname, amount, count)| CategorySummary {
+            category_id: cid,
+            category_name: cname,
+            amount,
+            count,
+            percentage: if total_expense > 0.0 { (amount / total_expense) * 100.0 } else { 0.0 },
+        })
+        .collect()
+    };
+
+    // 3. Income breakdown by category
+    let income_breakdown: Vec<CategorySummary> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT t.category_id, COALESCE(c.name, 'Unknown'), SUM(t.amount), COUNT(*)
+                 FROM transactions t
+                 LEFT JOIN expense_categories c ON t.category_id = c.id
+                 WHERE t.type = 'income'
+                   AND (?1 IS NULL OR t.date >= ?1)
+                   AND (?2 IS NULL OR t.date <= ?2)
+                   AND (?3 IS NULL OR t.category_id = ?3)
+                 GROUP BY t.category_id
+                 ORDER BY SUM(t.amount) DESC",
+            )
+            .expect("prepare failed");
+        stmt.query_map(params![from_date, to_date, category_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })
+        .expect("query failed")
+        .filter_map(|r| r.ok())
+        .map(|(cid, cname, amount, count)| CategorySummary {
+            category_id: cid,
+            category_name: cname,
+            amount,
+            count,
+            percentage: if total_income > 0.0 { (amount / total_income) * 100.0 } else { 0.0 },
+        })
+        .collect()
+    };
+
+    // 4. Monthly trend (date-filtered only, no category filter for meaningful comparison)
+    let monthly_trend: Vec<MonthlyTrend> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT
+                   strftime('%Y-%m', date) AS month,
+                   SUM(CASE WHEN type='income' THEN amount ELSE 0 END),
+                   SUM(CASE WHEN type='expense' THEN amount ELSE 0 END)
+                 FROM transactions
+                 WHERE (?1 IS NULL OR date >= ?1)
+                   AND (?2 IS NULL OR date <= ?2)
+                 GROUP BY month
+                 ORDER BY month ASC",
+            )
+            .expect("prepare failed");
+        stmt.query_map(params![from_date, to_date], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, f64>(1)?,
+                row.get::<_, f64>(2)?,
+            ))
+        })
+        .expect("query failed")
+        .filter_map(|r| r.ok())
+        .map(|(month, income, expense)| MonthlyTrend { month, income, expense, net: income - expense })
+        .collect()
+    };
+
+    // 5. Filtered transaction list
+    let transactions: Vec<Transaction> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT t.id, t.amount, t.description, t.category_id,
+                        COALESCE(c.name, '') AS category_name,
+                        t.date, t.type, t.created_at
+                 FROM transactions t
+                 LEFT JOIN expense_categories c ON t.category_id = c.id
+                 WHERE (?1 IS NULL OR t.date >= ?1)
+                   AND (?2 IS NULL OR t.date <= ?2)
+                   AND (?3 IS NULL OR t.category_id = ?3)
+                 ORDER BY t.date DESC, t.sort_order DESC, t.rowid DESC",
+            )
+            .expect("prepare failed");
+        stmt.query_map(params![from_date, to_date, category_id], |row| {
+            Ok(Transaction {
+                id: row.get(0)?,
+                amount: row.get(1)?,
+                description: row.get(2)?,
+                category_id: row.get(3)?,
+                category_name: row.get(4)?,
+                date: row.get(5)?,
+                transaction_type: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })
+        .expect("query failed")
+        .filter_map(|r| r.ok())
+        .collect()
+    };
+
+    DashboardReport {
+        total_income,
+        total_expense,
+        net,
+        savings_rate,
+        expense_breakdown,
+        income_breakdown,
+        monthly_trend,
+        transactions,
+        tx_count,
+    }
 }
 
 pub fn now_ms() -> i64 {

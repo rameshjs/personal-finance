@@ -35,6 +35,45 @@ pub struct AppState {
     pub db: Mutex<Connection>,
 }
 
+#[derive(Serialize, Clone, Debug)]
+pub struct CategorySummary {
+    #[serde(rename = "categoryId")]
+    pub category_id: String,
+    #[serde(rename = "categoryName")]
+    pub category_name: String,
+    pub amount: f64,
+    pub count: i64,
+    pub percentage: f64,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct MonthlyTrend {
+    pub month: String, // "YYYY-MM"
+    pub income: f64,
+    pub expense: f64,
+    pub net: f64,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct DashboardReport {
+    #[serde(rename = "totalIncome")]
+    pub total_income: f64,
+    #[serde(rename = "totalExpense")]
+    pub total_expense: f64,
+    pub net: f64,
+    #[serde(rename = "savingsRate")]
+    pub savings_rate: Option<f64>,
+    #[serde(rename = "expenseBreakdown")]
+    pub expense_breakdown: Vec<CategorySummary>,
+    #[serde(rename = "incomeBreakdown")]
+    pub income_breakdown: Vec<CategorySummary>,
+    #[serde(rename = "monthlyTrend")]
+    pub monthly_trend: Vec<MonthlyTrend>,
+    pub transactions: Vec<Transaction>,
+    #[serde(rename = "txCount")]
+    pub tx_count: i64,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ExpenseCategory {
     pub id: String,
