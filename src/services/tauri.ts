@@ -3,6 +3,7 @@ import type { Investment, MFSearchResult, NewInvestment } from '../types/investm
 import type { NewOtherInvestment, OtherInvestment } from '../types/other-investment';
 import type { ExpenseCategory, NewExpenseCategory, NewTransaction, Transaction } from '../types/expense';
 import type { DashboardReport, ExportBundle, ImportSummary } from '../types/dashboard';
+import type { ConsolidatedReport, RealizedPnlEntry } from '../types/consolidated-report';
 
 export const api = {
   getInvestments: (): Promise<Investment[]> =>
@@ -57,6 +58,13 @@ export const api = {
   }): Promise<DashboardReport> =>
     invoke('get_dashboard_report', params),
 
+  getConsolidatedReport: (params: {
+    from_date?: string | null
+    to_date?: string | null
+    category_id?: string | null
+  }): Promise<ConsolidatedReport> =>
+    invoke('get_consolidated_report', params),
+
   exportData: (): Promise<ExportBundle> =>
     invoke('export_data'),
 
@@ -74,4 +82,41 @@ export const api = {
 
   saveExportCsv: (path: string): Promise<string> =>
     invoke('save_export_csv', { path }),
+
+  updateInvestment: (id: string, quantity: number, avg_buy_price: number): Promise<Investment[]> =>
+    invoke('update_investment', { id, quantity, avgBuyPrice: avg_buy_price }),
+
+  sellInvestment: (params: {
+    id: string
+    quantity_sold: number
+    sell_price_per_unit: number
+    sell_date: string
+    notes?: string | null
+  }): Promise<Investment[]> =>
+    invoke('sell_investment', {
+      id: params.id,
+      quantitySold: params.quantity_sold,
+      sellPricePerUnit: params.sell_price_per_unit,
+      sellDate: params.sell_date,
+      notes: params.notes ?? null,
+    }),
+
+  sellOtherInvestment: (params: {
+    id: string
+    sell_price: number
+    sell_date: string
+    notes?: string | null
+  }): Promise<OtherInvestment[]> =>
+    invoke('sell_other_investment', {
+      id: params.id,
+      sellPrice: params.sell_price,
+      sellDate: params.sell_date,
+      notes: params.notes ?? null,
+    }),
+
+  getRealizedPnl: (): Promise<RealizedPnlEntry[]> =>
+    invoke('get_realized_pnl'),
+
+  deleteRealizedPnl: (id: string): Promise<RealizedPnlEntry[]> =>
+    invoke('delete_realized_pnl', { id }),
 };
