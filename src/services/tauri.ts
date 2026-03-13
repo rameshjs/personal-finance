@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Investment, MFSearchResult, NewInvestment } from '../types/investment';
+import type { NewOtherInvestment, OtherInvestment } from '../types/other-investment';
 
 export const api = {
   getInvestments: (): Promise<Investment[]> =>
@@ -16,4 +17,16 @@ export const api = {
 
   searchMutualFunds: (query: string): Promise<MFSearchResult[]> =>
     invoke('search_mutual_funds', { query }),
+
+  getOtherInvestments: (): Promise<OtherInvestment[]> =>
+    invoke('get_other_investments'),
+
+  addOtherInvestment: (investment: NewOtherInvestment): Promise<OtherInvestment[]> =>
+    invoke('add_other_investment', { investment }),
+
+  deleteOtherInvestment: (id: string): Promise<OtherInvestment[]> =>
+    invoke('delete_other_investment', { id }),
+
+  syncOtherPrices: (): Promise<OtherInvestment[]> =>
+    invoke('sync_other_prices'),
 };
