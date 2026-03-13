@@ -2,6 +2,7 @@ import { NavLink, Routes, Route, Navigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import InvestmentSection from './components/investments/InvestmentSection';
 import OtherInvestmentSection from './components/other-investments/OtherInvestmentSection';
+import ExpenseSection from './components/expenses/ExpenseSection';
 
 const NAV_BASE =
   'px-4 py-2 text-xs tracking-widest text-muted-foreground border-b-2 border-transparent transition-colors';
@@ -20,6 +21,9 @@ export default function App() {
         <NavLink to="/other" className={navClass}>
           OTHER
         </NavLink>
+        <NavLink to="/expenses" className={navClass}>
+          EXPENSES
+        </NavLink>
       </header>
 
       <main className="flex-1 overflow-y-auto">
@@ -27,6 +31,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/investments" replace />} />
           <Route path="/investments" element={<InvestmentSection />} />
           <Route path="/other" element={<OtherInvestmentSection />} />
+          <Route path="/expenses" element={<ExpenseSection />} />
         </Routes>
       </main>
     </div>
