@@ -19,8 +19,8 @@ pub fn run() {
             let db_dir = app.path().app_data_dir().expect("No app data dir");
             std::fs::create_dir_all(&db_dir).ok();
             let db_path = db_dir.join("personal_finance.db");
-            let conn = Connection::open(&db_path).expect("Failed to open DB");
-            db_init(&conn);
+            let mut conn = Connection::open(&db_path).expect("Failed to open DB");
+            db_init(&mut conn);
             app.manage(AppState { db: Mutex::new(conn) });
             Ok(())
         })

@@ -1,90 +1,18 @@
 use chrono::{Datelike, NaiveDate};
 use rusqlite::{params, Connection};
+use rusqlite_migration::{Migrations, M};
 
 use crate::models::{CategorySummary, ConsolidatedReport, DashboardReport, ExpenseCategory, ExportBundle, HoldingSummary, ImportSummary, Investment, MonthlyTrend, NetWorthPoint, OtherHoldingSummary, OtherInvestment, RealizedPnlEntry, Transaction};
 
-pub fn db_init(conn: &Connection) {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS investments (
-            id           TEXT    PRIMARY KEY,
-            name         TEXT    NOT NULL,
-            ticker       TEXT    NOT NULL,
-            type         TEXT    NOT NULL,
-            exchange     TEXT,
-            scheme_name  TEXT,
-            quantity     REAL    NOT NULL,
-            avg_buy_price REAL   NOT NULL,
-            current_price REAL,
-            last_updated  INTEGER,
-            fetch_error   INTEGER NOT NULL DEFAULT 0,
-            sort_order    INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS other_investments (
-            id                      TEXT    PRIMARY KEY,
-            name                    TEXT    NOT NULL,
-            type                    TEXT    NOT NULL,
-            principal               REAL    NOT NULL,
-            interest_rate           REAL,
-            start_date              TEXT    NOT NULL,
-            maturity_date           TEXT,
-            compounding_frequency   INTEGER,
-            total_months            INTEGER,
-            purchase_price_per_unit REAL,
-            current_price           REAL,
-            last_updated            INTEGER,
-            fetch_error             INTEGER NOT NULL DEFAULT 0,
-            sort_order              INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS expense_categories (
-            id         TEXT    PRIMARY KEY,
-            name       TEXT    NOT NULL,
-            type       TEXT    NOT NULL,
-            is_default INTEGER NOT NULL DEFAULT 0,
-            sort_order INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS transactions (
-            id          TEXT    PRIMARY KEY,
-            amount      REAL    NOT NULL,
-            description TEXT,
-            category_id TEXT    NOT NULL,
-            date        TEXT    NOT NULL,
-            type        TEXT    NOT NULL,
-            created_at  TEXT    NOT NULL,
-            sort_order  INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS realized_pnl (
-            id               TEXT    PRIMARY KEY,
-            investment_id    TEXT    NOT NULL,
-            investment_name  TEXT    NOT NULL,
-            ticker           TEXT    NOT NULL,
-            investment_type  TEXT    NOT NULL,
-            sell_date        TEXT    NOT NULL,
-            quantity_sold    REAL,
-            sell_price       REAL    NOT NULL,
-            invested_amount  REAL    NOT NULL,
-            pnl              REAL    NOT NULL,
-            notes            TEXT,
-            created_at       TEXT    NOT NULL
-        );
-        INSERT OR IGNORE INTO expense_categories (id, name, type, is_default, sort_order) VALUES
-            ('def-exp-food',          'Food & Dining', 'expense', 1,  0),
-            ('def-exp-transport',     'Transport',     'expense', 1,  1),
-            ('def-exp-utilities',     'Utilities',     'expense', 1,  2),
-            ('def-exp-shopping',      'Shopping',      'expense', 1,  3),
-            ('def-exp-entertainment', 'Entertainment', 'expense', 1,  4),
-            ('def-exp-healthcare',    'Healthcare',    'expense', 1,  5),
-            ('def-exp-education',     'Education',     'expense', 1,  6),
-            ('def-exp-rent',          'Rent',          'expense', 1,  7),
-            ('def-exp-subs',          'Subscriptions', 'expense', 1,  8),
-            ('def-exp-other',         'Other',         'expense', 1,  9),
-            ('def-inc-salary',        'Salary',        'income',  1, 10),
-            ('def-inc-freelance',     'Freelance',     'income',  1, 11),
-            ('def-inc-dividends',     'Dividends',     'income',  1, 12),
-            ('def-inc-rental',        'Rental Income', 'income',  1, 13),
-            ('def-inc-business',      'Business',      'income',  1, 14),
-            ('def-inc-other',         'Other Income',  'income',  1, 15);",
-    )
-    .expect("DB init failed");
+pub fn db_init(conn: &mut Connection) {
+    let migrations = Migrations::new(vec![
+        M::up(include_str!("../migrations/V01__create_investments.sql")),
+        M::up(include_str!("../migrations/V02__create_other_investments.sql")),
+        M::up(include_str!("../migrations/V03__create_expense_categories.sql")),
+        M::up(include_str!("../migrations/V04__create_transactions.sql")),
+        M::up(include_str!("../migrations/V05__create_realized_pnl.sql")),
+    ]);
+    migrations.to_latest(conn).expect("DB migration failed");
 }
 
 pub fn db_get_all(conn: &Connection) -> Vec<Investment> {
