@@ -1,10 +1,10 @@
 use rusqlite::params;
 use serde::Deserialize;
-use tauri::{Manager, State};
+use tauri::State;
 
-use crate::db::{db_export_all, db_get_all, db_get_all_other, db_get_categories, db_get_dashboard_report, db_get_transactions, db_import_all, db_import_transactions_csv, db_transactions_to_csv, now_ms};
+use crate::db::{db_delete_realized_pnl, db_export_all, db_get_all, db_get_all_other, db_get_categories, db_get_consolidated_report, db_get_dashboard_report, db_get_realized_pnl, db_get_transactions, db_import_all, db_import_transactions_csv, db_sell_investment, db_sell_other_investment, db_transactions_to_csv, db_update_investment, now_ms};
 use crate::market::{fetch_other_price, fetch_price};
-use crate::models::{AppState, DashboardReport, ExpenseCategory, ExportBundle, ImportSummary, Investment, MFSearchResult, OtherInvestment, Transaction};
+use crate::models::{AppState, ConsolidatedReport, DashboardReport, ExpenseCategory, ExportBundle, ImportSummary, Investment, MFSearchResult, OtherInvestment, RealizedPnlEntry, Transaction};
 
 #[tauri::command]
 pub async fn get_investments(state: State<'_, AppState>) -> Result<Vec<Investment>, String> {
@@ -403,6 +403,22 @@ pub async fn get_dashboard_report(
 }
 
 #[tauri::command]
+pub async fn get_consolidated_report(
+    state: State<'_, AppState>,
+    from_date: Option<String>,
+    to_date: Option<String>,
+    category_id: Option<String>,
+) -> Result<ConsolidatedReport, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(db_get_consolidated_report(
+        &conn,
+        from_date.as_deref(),
+        to_date.as_deref(),
+        category_id.as_deref(),
+    ))
+}
+
+#[tauri::command]
 pub async fn export_data(state: State<'_, AppState>) -> Result<ExportBundle, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     Ok(db_export_all(&conn))
@@ -468,6 +484,59 @@ pub async fn save_export_csv(
     };
     std::fs::write(&path, csv.as_bytes()).map_err(|e| e.to_string())?;
     Ok(path)
+}
+
+// ── Edit / Sell / Realized P&L ────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn update_investment(
+    state: State<'_, AppState>,
+    id: String,
+    quantity: f64,
+    avg_buy_price: f64,
+) -> Result<Vec<Investment>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    db_update_investment(&conn, &id, quantity, avg_buy_price)
+}
+
+#[tauri::command]
+pub async fn sell_investment(
+    state: State<'_, AppState>,
+    id: String,
+    quantity_sold: f64,
+    sell_price_per_unit: f64,
+    sell_date: String,
+    notes: Option<String>,
+) -> Result<Vec<Investment>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    db_sell_investment(&conn, &id, quantity_sold, sell_price_per_unit, &sell_date, notes.as_deref())
+}
+
+#[tauri::command]
+pub async fn sell_other_investment(
+    state: State<'_, AppState>,
+    id: String,
+    sell_price: f64,
+    sell_date: String,
+    notes: Option<String>,
+) -> Result<Vec<OtherInvestment>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    db_sell_other_investment(&conn, &id, sell_price, &sell_date, notes.as_deref())
+}
+
+#[tauri::command]
+pub async fn get_realized_pnl(state: State<'_, AppState>) -> Result<Vec<RealizedPnlEntry>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(db_get_realized_pnl(&conn))
+}
+
+#[tauri::command]
+pub async fn delete_realized_pnl(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<RealizedPnlEntry>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(db_delete_realized_pnl(&conn, &id))
 }
 
 #[tauri::command]

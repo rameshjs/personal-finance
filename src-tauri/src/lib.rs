@@ -41,12 +41,18 @@ pub fn run() {
             commands::add_transaction,
             commands::delete_transaction,
             commands::get_dashboard_report,
+            commands::get_consolidated_report,
             commands::export_data,
             commands::import_data,
             commands::export_transactions_csv,
             commands::import_transactions_csv,
             commands::save_export_json,
             commands::save_export_csv,
+            commands::update_investment,
+            commands::sell_investment,
+            commands::sell_other_investment,
+            commands::get_realized_pnl,
+            commands::delete_realized_pnl,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

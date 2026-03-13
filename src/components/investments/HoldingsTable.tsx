@@ -11,6 +11,8 @@ import HoldingRow from './HoldingRow';
 interface Props {
   holdings: Investment[];
   onDelete: (id: string) => void;
+  onEdit: (holding: Investment) => void;
+  onSell: (holding: Investment) => void;
 }
 
 function EmptyState() {
@@ -23,7 +25,7 @@ function EmptyState() {
   );
 }
 
-export default function HoldingsTable({ holdings, onDelete }: Props) {
+export default function HoldingsTable({ holdings, onDelete, onEdit, onSell }: Props) {
   if (holdings.length === 0) return <EmptyState />;
 
   return (
@@ -42,7 +44,13 @@ export default function HoldingsTable({ holdings, onDelete }: Props) {
         </TableHeader>
         <TableBody>
           {holdings.map((holding) => (
-            <HoldingRow key={holding.id} holding={holding} onDelete={onDelete} />
+            <HoldingRow
+              key={holding.id}
+              holding={holding}
+              onDelete={onDelete}
+              onEdit={onEdit}
+              onSell={onSell}
+            />
           ))}
         </TableBody>
       </Table>

@@ -1,6 +1,7 @@
+use chrono::{Datelike, NaiveDate};
 use rusqlite::{params, Connection};
 
-use crate::models::{CategorySummary, DashboardReport, ExpenseCategory, ExportBundle, ImportSummary, Investment, MonthlyTrend, OtherInvestment, Transaction};
+use crate::models::{CategorySummary, ConsolidatedReport, DashboardReport, ExpenseCategory, ExportBundle, HoldingSummary, ImportSummary, Investment, MonthlyTrend, NetWorthPoint, OtherHoldingSummary, OtherInvestment, RealizedPnlEntry, Transaction};
 
 pub fn db_init(conn: &Connection) {
     conn.execute_batch(
@@ -50,6 +51,20 @@ pub fn db_init(conn: &Connection) {
             type        TEXT    NOT NULL,
             created_at  TEXT    NOT NULL,
             sort_order  INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS realized_pnl (
+            id               TEXT    PRIMARY KEY,
+            investment_id    TEXT    NOT NULL,
+            investment_name  TEXT    NOT NULL,
+            ticker           TEXT    NOT NULL,
+            investment_type  TEXT    NOT NULL,
+            sell_date        TEXT    NOT NULL,
+            quantity_sold    REAL,
+            sell_price       REAL    NOT NULL,
+            invested_amount  REAL    NOT NULL,
+            pnl              REAL    NOT NULL,
+            notes            TEXT,
+            created_at       TEXT    NOT NULL
         );
         INSERT OR IGNORE INTO expense_categories (id, name, type, is_default, sort_order) VALUES
             ('def-exp-food',          'Food & Dining', 'expense', 1,  0),
@@ -369,11 +384,12 @@ pub fn db_get_dashboard_report(
 
 pub fn db_export_all(conn: &Connection) -> ExportBundle {
     ExportBundle {
-        version: 1,
+        version: 2,
         investments: db_get_all(conn),
         other_investments: db_get_all_other(conn),
         expense_categories: db_get_categories(conn),
         transactions: db_get_transactions(conn),
+        realized_pnl: db_get_realized_pnl(conn),
     }
 }
 
@@ -442,6 +458,23 @@ pub fn db_import_all(conn: &Connection, bundle: ExportBundle) -> ImportSummary {
         ) {
             Ok(n) => if n > 0 { inserted += 1 } else { skipped += 1 },
             Err(e) => errors.push(format!("transaction {}: {}", tx.id, e)),
+        }
+    }
+
+    // 5. Realized P&L (INSERT OR IGNORE — preserve existing records)
+    for entry in bundle.realized_pnl {
+        match conn.execute(
+            "INSERT OR IGNORE INTO realized_pnl
+               (id, investment_id, investment_name, ticker, investment_type,
+                sell_date, quantity_sold, sell_price, invested_amount, pnl, notes, created_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+            params![entry.id, entry.investment_id, entry.investment_name,
+                    entry.ticker, entry.investment_type, entry.sell_date,
+                    entry.quantity_sold, entry.sell_price, entry.invested_amount,
+                    entry.pnl, entry.notes, entry.created_at],
+        ) {
+            Ok(n) => if n > 0 { inserted += 1 } else { skipped += 1 },
+            Err(e) => errors.push(format!("realized_pnl {}: {}", entry.id, e)),
         }
     }
 
@@ -659,4 +692,488 @@ pub fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64
+}
+
+// ── Realized P&L ─────────────────────────────────────────────────────────────
+
+pub fn db_get_realized_pnl(conn: &Connection) -> Vec<RealizedPnlEntry> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, investment_id, investment_name, ticker, investment_type,
+                    sell_date, quantity_sold, sell_price, invested_amount, pnl, notes, created_at
+             FROM realized_pnl
+             ORDER BY sell_date DESC, created_at DESC",
+        )
+        .expect("prepare failed");
+
+    stmt.query_map([], |row| {
+        Ok(RealizedPnlEntry {
+            id: row.get(0)?,
+            investment_id: row.get(1)?,
+            investment_name: row.get(2)?,
+            ticker: row.get(3)?,
+            investment_type: row.get(4)?,
+            sell_date: row.get(5)?,
+            quantity_sold: row.get(6)?,
+            sell_price: row.get(7)?,
+            invested_amount: row.get(8)?,
+            pnl: row.get(9)?,
+            notes: row.get(10)?,
+            created_at: row.get(11)?,
+        })
+    })
+    .expect("query failed")
+    .filter_map(|r| r.ok())
+    .collect()
+}
+
+fn db_insert_realized_pnl(conn: &Connection, entry: &RealizedPnlEntry) {
+    conn.execute(
+        "INSERT INTO realized_pnl
+           (id, investment_id, investment_name, ticker, investment_type,
+            sell_date, quantity_sold, sell_price, invested_amount, pnl, notes, created_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+        params![
+            entry.id,
+            entry.investment_id,
+            entry.investment_name,
+            entry.ticker,
+            entry.investment_type,
+            entry.sell_date,
+            entry.quantity_sold,
+            entry.sell_price,
+            entry.invested_amount,
+            entry.pnl,
+            entry.notes,
+            entry.created_at,
+        ],
+    )
+    .expect("insert realized_pnl failed");
+}
+
+pub fn db_delete_realized_pnl(conn: &Connection, id: &str) -> Vec<RealizedPnlEntry> {
+    conn.execute("DELETE FROM realized_pnl WHERE id=?1", params![id])
+        .expect("delete failed");
+    db_get_realized_pnl(conn)
+}
+
+/// Sell some or all units of a stock/MF holding.
+/// Returns updated investments list.
+pub fn db_sell_investment(
+    conn: &Connection,
+    id: &str,
+    quantity_sold: f64,
+    sell_price_per_unit: f64,
+    sell_date: &str,
+    notes: Option<&str>,
+) -> Result<Vec<Investment>, String> {
+    // Fetch the holding
+    let inv: Investment = conn
+        .query_row(
+            "SELECT id, name, ticker, type, exchange, scheme_name,
+                    quantity, avg_buy_price, current_price, last_updated, fetch_error
+             FROM investments WHERE id=?1",
+            params![id],
+            |row| {
+                Ok(Investment {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    ticker: row.get(2)?,
+                    investment_type: row.get(3)?,
+                    exchange: row.get(4)?,
+                    scheme_name: row.get(5)?,
+                    quantity: row.get(6)?,
+                    avg_buy_price: row.get(7)?,
+                    current_price: row.get(8)?,
+                    last_updated: row.get(9)?,
+                    fetch_error: row.get::<_, i32>(10).unwrap_or(0) == 1,
+                })
+            },
+        )
+        .map_err(|e| format!("Investment not found: {}", e))?;
+
+    if quantity_sold <= 0.0 {
+        return Err("Quantity sold must be > 0".to_string());
+    }
+    if quantity_sold > inv.quantity {
+        return Err(format!(
+            "Cannot sell {:.4} units; you only hold {:.4}",
+            quantity_sold, inv.quantity
+        ));
+    }
+
+    let invested_amount = quantity_sold * inv.avg_buy_price;
+    let sell_price = quantity_sold * sell_price_per_unit;
+    let pnl = sell_price - invested_amount;
+    let created_at = now_ms().to_string();
+
+    let entry = RealizedPnlEntry {
+        id: format!("rpnl-{}", now_ms()),
+        investment_id: inv.id.clone(),
+        investment_name: inv.name.clone(),
+        ticker: inv.ticker.clone(),
+        investment_type: inv.investment_type.clone(),
+        sell_date: sell_date.to_string(),
+        quantity_sold: Some(quantity_sold),
+        sell_price,
+        invested_amount,
+        pnl,
+        notes: notes.map(|s| s.to_string()),
+        created_at,
+    };
+    db_insert_realized_pnl(conn, &entry);
+
+    // Full sell: delete; partial sell: update quantity
+    let remaining = inv.quantity - quantity_sold;
+    if remaining < 1e-9 {
+        conn.execute("DELETE FROM investments WHERE id=?1", params![id])
+            .map_err(|e| e.to_string())?;
+    } else {
+        conn.execute(
+            "UPDATE investments SET quantity=?1 WHERE id=?2",
+            params![remaining, id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(db_get_all(conn))
+}
+
+/// Update quantity and/or avg buy price of an existing stock/MF holding.
+pub fn db_update_investment(
+    conn: &Connection,
+    id: &str,
+    quantity: f64,
+    avg_buy_price: f64,
+) -> Result<Vec<Investment>, String> {
+    let rows = conn
+        .execute(
+            "UPDATE investments SET quantity=?1, avg_buy_price=?2 WHERE id=?3",
+            params![quantity, avg_buy_price, id],
+        )
+        .map_err(|e| e.to_string())?;
+    if rows == 0 {
+        return Err("Investment not found".to_string());
+    }
+    Ok(db_get_all(conn))
+}
+
+/// Fully liquidate an other investment (savings/FD/RD/gold).
+pub fn db_sell_other_investment(
+    conn: &Connection,
+    id: &str,
+    sell_price: f64,
+    sell_date: &str,
+    notes: Option<&str>,
+) -> Result<Vec<OtherInvestment>, String> {
+    let inv: OtherInvestment = conn
+        .query_row(
+            "SELECT id, name, type, principal, interest_rate, start_date,
+                    maturity_date, compounding_frequency, total_months,
+                    purchase_price_per_unit, current_price, last_updated, fetch_error
+             FROM other_investments WHERE id=?1",
+            params![id],
+            |row| {
+                Ok(OtherInvestment {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    investment_type: row.get(2)?,
+                    principal: row.get(3)?,
+                    interest_rate: row.get(4)?,
+                    start_date: row.get(5)?,
+                    maturity_date: row.get(6)?,
+                    compounding_frequency: row.get(7)?,
+                    total_months: row.get(8)?,
+                    purchase_price_per_unit: row.get(9)?,
+                    current_price: row.get(10)?,
+                    last_updated: row.get(11)?,
+                    fetch_error: row.get::<_, i32>(12).unwrap_or(0) == 1,
+                })
+            },
+        )
+        .map_err(|e| format!("Investment not found: {}", e))?;
+
+    let today = today_naive();
+    let (_, invested_amount) = calc_other_holding(&inv, today);
+    let pnl = sell_price - invested_amount;
+    let created_at = now_ms().to_string();
+
+    // For gold, quantity_sold = grams; for others, it's not meaningful (None)
+    let quantity_sold = if inv.investment_type == "gold" {
+        Some(inv.principal) // grams
+    } else {
+        None
+    };
+
+    let entry = RealizedPnlEntry {
+        id: format!("rpnl-{}", now_ms()),
+        investment_id: inv.id.clone(),
+        investment_name: inv.name.clone(),
+        ticker: inv.investment_type.clone(), // use type as ticker for display
+        investment_type: inv.investment_type.clone(),
+        sell_date: sell_date.to_string(),
+        quantity_sold,
+        sell_price,
+        invested_amount,
+        pnl,
+        notes: notes.map(|s| s.to_string()),
+        created_at,
+    };
+    db_insert_realized_pnl(conn, &entry);
+
+    conn.execute("DELETE FROM other_investments WHERE id=?1", params![id])
+        .map_err(|e| e.to_string())?;
+
+    Ok(db_get_all_other(conn))
+}
+
+// ── Consolidated Report ───────────────────────────────────────────────────────
+
+fn today_naive() -> NaiveDate {
+    chrono::Local::now().naive_local().date()
+}
+
+fn parse_naive(s: &str, fallback: NaiveDate) -> NaiveDate {
+    NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap_or(fallback)
+}
+
+fn calc_savings_value(principal: f64, rate: f64, start_date: &str, today: NaiveDate) -> f64 {
+    let start = parse_naive(start_date, today);
+    let days = (today - start).num_days().max(0) as f64;
+    let t = days / 365.0;
+    principal * (1.0 + rate / 400.0).powf(4.0 * t)
+}
+
+fn calc_fd_value(
+    principal: f64,
+    rate: f64,
+    start_date: &str,
+    maturity_date: Option<&str>,
+    freq: i32,
+    today: NaiveDate,
+) -> f64 {
+    let start = parse_naive(start_date, today);
+    let effective_end = match maturity_date {
+        Some(m) => {
+            let mat = parse_naive(m, today);
+            if mat < today { mat } else { today }
+        }
+        None => today,
+    };
+    let days = (effective_end - start).num_days().max(0) as f64;
+    let t = days / 365.0;
+    let n = freq as f64;
+    principal * (1.0 + rate / (n * 100.0)).powf(n * t)
+}
+
+/// Returns (current_value, invested_so_far) for an RD.
+fn calc_rd_value(
+    monthly_installment: f64,
+    rate: f64,
+    start_date: &str,
+    total_months: i32,
+    today: NaiveDate,
+) -> (f64, f64) {
+    let start = parse_naive(start_date, today);
+    let months_raw =
+        (today.year() - start.year()) * 12 + today.month() as i32 - start.month() as i32;
+    let months_elapsed = months_raw.max(0).min(total_months);
+    let r = rate / 400.0; // quarterly rate
+    let mut total = 0.0;
+    for i in 1..=months_elapsed {
+        let remaining = (months_elapsed - i + 1) as f64;
+        let quarters = remaining / 3.0;
+        total += monthly_installment * (1.0 + r).powf(quarters);
+    }
+    let invested = monthly_installment * months_elapsed as f64;
+    (total, invested)
+}
+
+fn calc_other_holding(inv: &OtherInvestment, today: NaiveDate) -> (f64, f64) {
+    // Returns (current_value, invested)
+    match inv.investment_type.as_str() {
+        "savings" => {
+            let rate = inv.interest_rate.unwrap_or(0.0);
+            let val = calc_savings_value(inv.principal, rate, &inv.start_date, today);
+            (val, inv.principal)
+        }
+        "fd" => {
+            let rate = inv.interest_rate.unwrap_or(0.0);
+            let freq = inv.compounding_frequency.unwrap_or(4);
+            let val = calc_fd_value(
+                inv.principal,
+                rate,
+                &inv.start_date,
+                inv.maturity_date.as_deref(),
+                freq,
+                today,
+            );
+            (val, inv.principal)
+        }
+        "rd" => {
+            let rate = inv.interest_rate.unwrap_or(0.0);
+            let months = inv.total_months.unwrap_or(0);
+            calc_rd_value(inv.principal, rate, &inv.start_date, months, today)
+        }
+        "gold" => {
+            let grams = inv.principal;
+            let purchase = inv.purchase_price_per_unit.unwrap_or(0.0);
+            let current = inv.current_price.unwrap_or(purchase);
+            (grams * current, grams * purchase)
+        }
+        _ => (inv.principal, inv.principal),
+    }
+}
+
+pub fn db_get_consolidated_report(
+    conn: &Connection,
+    from_date: Option<&str>,
+    to_date: Option<&str>,
+    category_id: Option<&str>,
+) -> ConsolidatedReport {
+    let today = today_naive();
+
+    // 1. Reuse dashboard logic for the period-filtered income/expense analysis
+    let dash = db_get_dashboard_report(conn, from_date, to_date, category_id);
+
+    // 2. Stocks & MF
+    let investments = db_get_all(conn);
+    let mut stock_mf_invested = 0.0f64;
+    let mut stock_mf_value = 0.0f64;
+    let holdings: Vec<HoldingSummary> = investments
+        .iter()
+        .map(|inv| {
+            let invested = inv.quantity * inv.avg_buy_price;
+            let price = inv.current_price.unwrap_or(inv.avg_buy_price);
+            let value = inv.quantity * price;
+            let pnl = value - invested;
+            let pnl_pct = if invested > 0.0 { Some((pnl / invested) * 100.0) } else { None };
+            stock_mf_invested += invested;
+            stock_mf_value += value;
+            HoldingSummary {
+                id: inv.id.clone(),
+                name: inv.name.clone(),
+                holding_type: inv.investment_type.clone(),
+                ticker: inv.ticker.clone(),
+                quantity: inv.quantity,
+                avg_buy_price: inv.avg_buy_price,
+                current_price: inv.current_price,
+                invested,
+                value,
+                pnl,
+                pnl_pct,
+                fetch_error: inv.fetch_error,
+            }
+        })
+        .collect();
+    let stock_mf_pnl = stock_mf_value - stock_mf_invested;
+    let stock_mf_pnl_pct = if stock_mf_invested > 0.0 {
+        Some((stock_mf_pnl / stock_mf_invested) * 100.0)
+    } else {
+        None
+    };
+
+    // 3. Other investments — value calculated in Rust
+    let other_investments = db_get_all_other(conn);
+    let mut other_invested = 0.0f64;
+    let mut other_value = 0.0f64;
+    let other_holdings: Vec<OtherHoldingSummary> = other_investments
+        .iter()
+        .map(|inv| {
+            let (current_value, invested) = calc_other_holding(inv, today);
+            other_invested += invested;
+            other_value += current_value;
+            let gain = current_value - invested;
+            let gain_pct = if invested > 0.0 { (gain / invested) * 100.0 } else { 0.0 };
+            OtherHoldingSummary {
+                id: inv.id.clone(),
+                name: inv.name.clone(),
+                holding_type: inv.investment_type.clone(),
+                invested,
+                current_value,
+                gain,
+                gain_pct,
+            }
+        })
+        .collect();
+    let other_gain = other_value - other_invested;
+
+    // 4. Combined investment totals
+    let total_invested = stock_mf_invested + other_invested;
+    let total_investment_value = stock_mf_value + other_value;
+    let total_investment_gain = stock_mf_pnl + other_gain;
+
+    // 5. All-time cumulative savings (income - expenses across ALL transactions ever)
+    let cumulative_savings: f64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE -amount END), 0) FROM transactions",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0.0);
+    let net_worth = total_investment_value + cumulative_savings;
+
+    // 6. Net worth trend — all-time monthly cumulative
+    let net_worth_trend: Vec<NetWorthPoint> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT strftime('%Y-%m', date) AS month,
+                        SUM(CASE WHEN type='income' THEN amount ELSE -amount END) AS net
+                 FROM transactions
+                 GROUP BY month
+                 ORDER BY month ASC",
+            )
+            .expect("prepare failed");
+        let monthly: Vec<(String, f64)> = stmt
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?)))
+            .expect("query failed")
+            .filter_map(|r| r.ok())
+            .collect();
+        let mut running = 0.0f64;
+        monthly
+            .iter()
+            .map(|(month, net)| {
+                running += net;
+                NetWorthPoint {
+                    month: month.clone(),
+                    cumulative_savings: running,
+                    investments: total_investment_value,
+                    net_worth: running + total_investment_value,
+                }
+            })
+            .collect()
+    };
+
+    // 7. Realized P&L (all-time)
+    let realized_pnl = db_get_realized_pnl(conn);
+    let total_realized_pnl: f64 = realized_pnl.iter().map(|e| e.pnl).sum();
+
+    ConsolidatedReport {
+        total_income: dash.total_income,
+        total_expense: dash.total_expense,
+        net: dash.net,
+        savings_rate: dash.savings_rate,
+        expense_breakdown: dash.expense_breakdown,
+        income_breakdown: dash.income_breakdown,
+        monthly_trend: dash.monthly_trend,
+        transactions: dash.transactions,
+        tx_count: dash.tx_count,
+        stock_mf_invested,
+        stock_mf_value,
+        stock_mf_pnl,
+        stock_mf_pnl_pct,
+        holdings,
+        other_invested,
+        other_value,
+        other_gain,
+        other_holdings,
+        total_invested,
+        total_investment_value,
+        total_investment_gain,
+        cumulative_savings,
+        net_worth,
+        net_worth_trend,
+        realized_pnl,
+        total_realized_pnl,
+    }
 }

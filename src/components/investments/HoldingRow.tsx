@@ -6,9 +6,11 @@ import { formatINR, formatQty } from '../../utils/format';
 interface Props {
   holding: Investment;
   onDelete: (id: string) => void;
+  onEdit: (holding: Investment) => void;
+  onSell: (holding: Investment) => void;
 }
 
-export default function HoldingRow({ holding, onDelete }: Props) {
+export default function HoldingRow({ holding, onDelete, onEdit, onSell }: Props) {
   const currentPrice = holding.currentPrice ?? holding.avgBuyPrice;
   const value = holding.quantity * currentPrice;
   const cost = holding.quantity * holding.avgBuyPrice;
@@ -46,15 +48,35 @@ export default function HoldingRow({ holding, onDelete }: Props) {
         <div className="opacity-80">{isPnLPositive ? '+' : ''}{pnlPct.toFixed(2)}%</div>
       </TableCell>
       <TableCell className="px-3 py-2 text-right">
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={() => onDelete(holding.id)}
-          className="text-muted-foreground hover:text-destructive"
-          title="Remove"
-        >
-          ✕
-        </Button>
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onEdit(holding)}
+            className="text-muted-foreground hover:text-foreground"
+            title="Edit"
+          >
+            ✎
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onSell(holding)}
+            className="text-muted-foreground hover:text-amber-500"
+            title="Sell"
+          >
+            ₹
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onDelete(holding.id)}
+            className="text-muted-foreground hover:text-destructive"
+            title="Remove"
+          >
+            ✕
+          </Button>
+        </div>
       </TableCell>
     </TableRow>
   );
