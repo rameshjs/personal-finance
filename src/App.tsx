@@ -4,6 +4,7 @@ import InvestmentSection from './components/investments/InvestmentSection';
 import OtherInvestmentSection from './components/other-investments/OtherInvestmentSection';
 import ExpenseSection from './components/expenses/ExpenseSection';
 import DashboardSection from './components/dashboard/DashboardSection';
+import SettingsSection from './components/settings/SettingsSection';
 
 const NAV_BASE =
   'px-4 py-2 text-xs tracking-widest text-muted-foreground border-b-2 border-transparent transition-colors';
@@ -28,6 +29,9 @@ export default function App() {
         <NavLink to="/expenses" className={navClass}>
           EXPENSES
         </NavLink>
+        <NavLink to="/settings" className={navClass}>
+          SETTINGS
+        </NavLink>
       </header>
 
       <main className="flex-1 overflow-y-auto">
@@ -37,6 +41,7 @@ export default function App() {
           <Route path="/investments" element={<InvestmentSection />} />
           <Route path="/other" element={<OtherInvestmentSection />} />
           <Route path="/expenses" element={<ExpenseSection />} />
+          <Route path="/settings" element={<SettingsSection />} />
         </Routes>
       </main>
     </div>
