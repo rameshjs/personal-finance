@@ -1,6 +1,10 @@
 import { useState, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { save } from "@tauri-apps/plugin-dialog"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { Sun01Icon, Moon01Icon, ComputerIcon } from "@hugeicons/core-free-icons"
+import { cn } from "../../lib/utils"
+import { useTheme, type Theme } from "../../context/theme"
 import { api } from "../../services/tauri"
 import type { ExportBundle, ImportSummary } from "../../types/dashboard"
 
@@ -8,7 +12,14 @@ function today() {
   return new Date().toISOString().slice(0, 10)
 }
 
+const THEME_OPTIONS: { value: Theme; label: string; icon: typeof Sun01Icon }[] = [
+  { value: 'light',  label: 'Light',  icon: Sun01Icon    },
+  { value: 'system', label: 'System', icon: ComputerIcon },
+  { value: 'dark',   label: 'Dark',   icon: Moon01Icon   },
+]
+
 export default function SettingsSection() {
+  const { theme, setTheme } = useTheme()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -91,6 +102,37 @@ export default function SettingsSection() {
   return (
     <div className="p-4 space-y-6 max-w-xl">
       <h1 className="text-sm font-semibold tracking-widest text-muted-foreground">SETTINGS</h1>
+
+      {/* Appearance section */}
+      <div className="space-y-3">
+        <p className="text-xs tracking-widest text-muted-foreground border-b border-border pb-1">APPEARANCE</p>
+        <div className="border border-border p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-foreground">Theme</p>
+              <p className="text-[11px] text-muted-foreground">Follows system preference by default.</p>
+            </div>
+            <div className="flex border border-border">
+              {THEME_OPTIONS.map(({ value, label, icon }) => (
+                <button
+                  key={value}
+                  onClick={() => setTheme(value)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 text-xs tracking-widest transition-colors",
+                    "border-r border-border last:border-r-0",
+                    theme === value
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <HugeiconsIcon icon={icon} size={13} />
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Export section */}
       <div className="space-y-3">
