@@ -2,7 +2,7 @@
 
 A desktop app to track investments, expenses, and net worth — all in INR. Built with Tauri 2 + React 19, data stored locally in SQLite.
 
-<video src="recordings/20260313-1503-11.4865646.mp4" controls width="100%"></video>
+![preview](recordings/preview.gif)
 
 ## Features
 
