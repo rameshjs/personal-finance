@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Investment, MFSearchResult, NewInvestment } from '../types/investment';
 import type { NewOtherInvestment, OtherInvestment } from '../types/other-investment';
 import type { ExpenseCategory, NewExpenseCategory, NewTransaction, Transaction } from '../types/expense';
-import type { DashboardReport } from '../types/dashboard';
+import type { DashboardReport, ExportBundle, ImportSummary } from '../types/dashboard';
 
 export const api = {
   getInvestments: (): Promise<Investment[]> =>
@@ -56,4 +56,22 @@ export const api = {
     category_id?: string | null
   }): Promise<DashboardReport> =>
     invoke('get_dashboard_report', params),
+
+  exportData: (): Promise<ExportBundle> =>
+    invoke('export_data'),
+
+  importData: (bundle: ExportBundle): Promise<ImportSummary> =>
+    invoke('import_data', { bundle }),
+
+  exportTransactionsCsv: (): Promise<string> =>
+    invoke('export_transactions_csv'),
+
+  importTransactionsCsv: (csv: string): Promise<ImportSummary> =>
+    invoke('import_transactions_csv', { csv }),
+
+  saveExportJson: (path: string): Promise<string> =>
+    invoke('save_export_json', { path }),
+
+  saveExportCsv: (path: string): Promise<string> =>
+    invoke('save_export_csv', { path }),
 };
