@@ -2,9 +2,9 @@ use rusqlite::params;
 use serde::Deserialize;
 use tauri::State;
 
-use crate::db::{db_get_all, now_ms};
-use crate::market::fetch_price;
-use crate::models::{AppState, Investment, MFSearchResult};
+use crate::db::{db_get_all, db_get_all_other, now_ms};
+use crate::market::{fetch_other_price, fetch_price};
+use crate::models::{AppState, Investment, MFSearchResult, OtherInvestment};
 
 #[tauri::command]
 pub async fn get_investments(state: State<'_, AppState>) -> Result<Vec<Investment>, String> {
@@ -138,6 +138,154 @@ pub async fn sync_prices(state: State<'_, AppState>) -> Result<Vec<Investment>, 
     }
 
     Ok(db_get_all(&conn))
+}
+
+#[tauri::command]
+pub async fn get_other_investments(
+    state: State<'_, AppState>,
+) -> Result<Vec<OtherInvestment>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(db_get_all_other(&conn))
+}
+
+#[tauri::command]
+pub async fn add_other_investment(
+    state: State<'_, AppState>,
+    investment: OtherInvestment,
+) -> Result<Vec<OtherInvestment>, String> {
+    // 1. Insert into DB
+    {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let next_order: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(sort_order), -1) FROM other_investments",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(-1)
+            + 1;
+
+        conn.execute(
+            "INSERT INTO other_investments
+              (id, name, type, principal, interest_rate, start_date,
+               maturity_date, compounding_frequency, total_months,
+               purchase_price_per_unit, current_price, last_updated, fetch_error, sort_order)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+            params![
+                investment.id,
+                investment.name,
+                investment.investment_type,
+                investment.principal,
+                investment.interest_rate,
+                investment.start_date,
+                investment.maturity_date,
+                investment.compounding_frequency,
+                investment.total_months,
+                investment.purchase_price_per_unit,
+                investment.current_price,
+                investment.last_updated,
+                if investment.fetch_error { 1 } else { 0 },
+                next_order,
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    // 2. For gold, fetch current price
+    if investment.investment_type == "gold" {
+        let price_result = fetch_other_price(&investment).await;
+        let now = now_ms();
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        match price_result {
+            Ok(price) => {
+                let _ = conn.execute(
+                    "UPDATE other_investments SET current_price=?1, last_updated=?2, fetch_error=0 WHERE id=?3",
+                    params![price, now, investment.id],
+                );
+            }
+            Err(_) => {
+                let _ = conn.execute(
+                    "UPDATE other_investments SET fetch_error=1, last_updated=?1 WHERE id=?2",
+                    params![now, investment.id],
+                );
+            }
+        }
+        let conn2 = state.db.lock().map_err(|e| e.to_string())?;
+        return Ok(db_get_all_other(&conn2));
+    }
+
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(db_get_all_other(&conn))
+}
+
+#[tauri::command]
+pub async fn delete_other_investment(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<OtherInvestment>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM other_investments WHERE id=?1", params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(db_get_all_other(&conn))
+}
+
+#[tauri::command]
+pub async fn sync_other_prices(
+    state: State<'_, AppState>,
+) -> Result<Vec<OtherInvestment>, String> {
+    // Only gold entries need price sync
+    let gold_entries: Vec<OtherInvestment> = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        db_get_all_other(&conn)
+            .into_iter()
+            .filter(|inv| inv.investment_type == "gold")
+            .collect()
+    };
+
+    if gold_entries.is_empty() {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        return Ok(db_get_all_other(&conn));
+    }
+
+    // Fetch all gold prices concurrently
+    let handles: Vec<_> = gold_entries
+        .iter()
+        .map(|inv| {
+            let inv = inv.clone();
+            tokio::spawn(async move {
+                let result = fetch_other_price(&inv).await;
+                (inv.id.clone(), result)
+            })
+        })
+        .collect();
+
+    let mut results = Vec::new();
+    for handle in handles {
+        if let Ok(r) = handle.await {
+            results.push(r);
+        }
+    }
+
+    let now = now_ms();
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    for (id, result) in results {
+        match result {
+            Ok(price) => {
+                let _ = conn.execute(
+                    "UPDATE other_investments SET current_price=?1, last_updated=?2, fetch_error=0 WHERE id=?3",
+                    params![price, now, id],
+                );
+            }
+            Err(_) => {
+                let _ = conn.execute(
+                    "UPDATE other_investments SET fetch_error=1, last_updated=?1 WHERE id=?2",
+                    params![now, id],
+                );
+            }
+        }
+    }
+
+    Ok(db_get_all_other(&conn))
 }
 
 #[tauri::command]

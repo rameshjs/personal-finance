@@ -29,6 +29,10 @@ pub fn run() {
             commands::delete_investment,
             commands::sync_prices,
             commands::search_mutual_funds,
+            commands::get_other_investments,
+            commands::add_other_investment,
+            commands::delete_other_investment,
+            commands::sync_other_prices,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

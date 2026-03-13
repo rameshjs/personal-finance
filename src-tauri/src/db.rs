@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-use crate::models::Investment;
+use crate::models::{Investment, OtherInvestment};
 
 pub fn db_init(conn: &Connection) {
     conn.execute_batch(
@@ -17,6 +17,22 @@ pub fn db_init(conn: &Connection) {
             last_updated  INTEGER,
             fetch_error   INTEGER NOT NULL DEFAULT 0,
             sort_order    INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS other_investments (
+            id                      TEXT    PRIMARY KEY,
+            name                    TEXT    NOT NULL,
+            type                    TEXT    NOT NULL,
+            principal               REAL    NOT NULL,
+            interest_rate           REAL,
+            start_date              TEXT    NOT NULL,
+            maturity_date           TEXT,
+            compounding_frequency   INTEGER,
+            total_months            INTEGER,
+            purchase_price_per_unit REAL,
+            current_price           REAL,
+            last_updated            INTEGER,
+            fetch_error             INTEGER NOT NULL DEFAULT 0,
+            sort_order              INTEGER NOT NULL DEFAULT 0
         );",
     )
     .expect("DB init failed");
@@ -45,6 +61,39 @@ pub fn db_get_all(conn: &Connection) -> Vec<Investment> {
             current_price: row.get(8)?,
             last_updated: row.get(9)?,
             fetch_error: row.get::<_, i32>(10).unwrap_or(0) == 1,
+        })
+    })
+    .expect("query failed")
+    .filter_map(|r| r.ok())
+    .collect()
+}
+
+pub fn db_get_all_other(conn: &Connection) -> Vec<OtherInvestment> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, type, principal, interest_rate, start_date,
+                    maturity_date, compounding_frequency, total_months,
+                    purchase_price_per_unit, current_price, last_updated, fetch_error
+             FROM other_investments
+             ORDER BY sort_order ASC, rowid ASC",
+        )
+        .expect("prepare failed");
+
+    stmt.query_map([], |row| {
+        Ok(OtherInvestment {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            investment_type: row.get(2)?,
+            principal: row.get(3)?,
+            interest_rate: row.get(4)?,
+            start_date: row.get(5)?,
+            maturity_date: row.get(6)?,
+            compounding_frequency: row.get(7)?,
+            total_months: row.get(8)?,
+            purchase_price_per_unit: row.get(9)?,
+            current_price: row.get(10)?,
+            last_updated: row.get(11)?,
+            fetch_error: row.get::<_, i32>(12).unwrap_or(0) == 1,
         })
     })
     .expect("query failed")
