@@ -104,6 +104,24 @@ pub struct Transaction {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ExportBundle {
+    pub version: u32,
+    pub investments: Vec<Investment>,
+    #[serde(rename = "otherInvestments")]
+    pub other_investments: Vec<OtherInvestment>,
+    #[serde(rename = "expenseCategories")]
+    pub expense_categories: Vec<ExpenseCategory>,
+    pub transactions: Vec<Transaction>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct ImportSummary {
+    pub inserted: i64,
+    pub skipped: i64,
+    pub errors: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OtherInvestment {
     pub id: String,
     pub name: String,

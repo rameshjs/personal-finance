@@ -1,4 +1,6 @@
-import type { Transaction } from './expense'
+import type { ExpenseCategory, Transaction } from './expense'
+import type { Investment } from './investment'
+import type { OtherInvestment } from './other-investment'
 
 export interface CategorySummary {
   categoryId: string
@@ -25,4 +27,18 @@ export interface DashboardReport {
   monthlyTrend: MonthlyTrend[]
   transactions: Transaction[]
   txCount: number
+}
+
+export interface ExportBundle {
+  version: number
+  investments: Investment[]
+  otherInvestments: OtherInvestment[]
+  expenseCategories: ExpenseCategory[]
+  transactions: Transaction[]
+}
+
+export interface ImportSummary {
+  inserted: number
+  skipped: number
+  errors: string[]
 }

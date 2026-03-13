@@ -1,6 +1,6 @@
 use rusqlite::{params, Connection};
 
-use crate::models::{CategorySummary, DashboardReport, ExpenseCategory, Investment, MonthlyTrend, OtherInvestment, Transaction};
+use crate::models::{CategorySummary, DashboardReport, ExpenseCategory, ExportBundle, ImportSummary, Investment, MonthlyTrend, OtherInvestment, Transaction};
 
 pub fn db_init(conn: &Connection) {
     conn.execute_batch(
@@ -362,6 +362,295 @@ pub fn db_get_dashboard_report(
         monthly_trend,
         transactions,
         tx_count,
+    }
+}
+
+// ── Export / Import ───────────────────────────────────────────────────────────
+
+pub fn db_export_all(conn: &Connection) -> ExportBundle {
+    ExportBundle {
+        version: 1,
+        investments: db_get_all(conn),
+        other_investments: db_get_all_other(conn),
+        expense_categories: db_get_categories(conn),
+        transactions: db_get_transactions(conn),
+    }
+}
+
+pub fn db_import_all(conn: &Connection, bundle: ExportBundle) -> ImportSummary {
+    let mut inserted = 0i64;
+    let mut skipped = 0i64;
+    let mut errors: Vec<String> = vec![];
+
+    // 1. Categories first (INSERT OR IGNORE — preserve existing defaults)
+    for cat in bundle.expense_categories {
+        match conn.execute(
+            "INSERT OR IGNORE INTO expense_categories (id, name, type, is_default, sort_order)
+             VALUES (?1,?2,?3,?4,?5)",
+            params![cat.id, cat.name, cat.category_type,
+                    if cat.is_default { 1 } else { 0 }, cat.sort_order],
+        ) {
+            Ok(n) => if n > 0 { inserted += 1 } else { skipped += 1 },
+            Err(e) => errors.push(format!("category {}: {}", cat.id, e)),
+        }
+    }
+
+    // 2. Investments (INSERT OR REPLACE — update if already exists)
+    for inv in bundle.investments {
+        match conn.execute(
+            "INSERT OR REPLACE INTO investments
+               (id, name, ticker, type, exchange, scheme_name,
+                quantity, avg_buy_price, current_price, last_updated, fetch_error, sort_order)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,0)",
+            params![inv.id, inv.name, inv.ticker, inv.investment_type,
+                    inv.exchange, inv.scheme_name, inv.quantity,
+                    inv.avg_buy_price, inv.current_price, inv.last_updated,
+                    if inv.fetch_error { 1 } else { 0 }],
+        ) {
+            Ok(n) => if n > 0 { inserted += 1 } else { skipped += 1 },
+            Err(e) => errors.push(format!("investment {}: {}", inv.id, e)),
+        }
+    }
+
+    // 3. Other investments (INSERT OR REPLACE)
+    for inv in bundle.other_investments {
+        match conn.execute(
+            "INSERT OR REPLACE INTO other_investments
+               (id, name, type, principal, interest_rate, start_date,
+                maturity_date, compounding_frequency, total_months,
+                purchase_price_per_unit, current_price, last_updated, fetch_error, sort_order)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,0)",
+            params![inv.id, inv.name, inv.investment_type, inv.principal,
+                    inv.interest_rate, inv.start_date, inv.maturity_date,
+                    inv.compounding_frequency, inv.total_months,
+                    inv.purchase_price_per_unit, inv.current_price,
+                    inv.last_updated, if inv.fetch_error { 1 } else { 0 }],
+        ) {
+            Ok(n) => if n > 0 { inserted += 1 } else { skipped += 1 },
+            Err(e) => errors.push(format!("other_investment {}: {}", inv.id, e)),
+        }
+    }
+
+    // 4. Transactions (INSERT OR IGNORE — never overwrite existing records)
+    for tx in bundle.transactions {
+        match conn.execute(
+            "INSERT OR IGNORE INTO transactions
+               (id, amount, description, category_id, date, type, created_at, sort_order)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,0)",
+            params![tx.id, tx.amount, tx.description, tx.category_id,
+                    tx.date, tx.transaction_type, tx.created_at],
+        ) {
+            Ok(n) => if n > 0 { inserted += 1 } else { skipped += 1 },
+            Err(e) => errors.push(format!("transaction {}: {}", tx.id, e)),
+        }
+    }
+
+    ImportSummary { inserted, skipped, errors }
+}
+
+// ── CSV helpers ───────────────────────────────────────────────────────────────
+
+fn csv_escape(s: &str) -> String {
+    if s.contains(',') || s.contains('"') || s.contains('\n') {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+fn parse_csv_row(line: &str) -> Vec<String> {
+    let mut fields: Vec<String> = vec![];
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '"' if in_quotes => {
+                if i + 1 < chars.len() && chars[i + 1] == '"' {
+                    current.push('"');
+                    i += 1;
+                } else {
+                    in_quotes = false;
+                }
+            }
+            '"' => in_quotes = true,
+            ',' if !in_quotes => {
+                fields.push(std::mem::take(&mut current));
+            }
+            c => current.push(c),
+        }
+        i += 1;
+    }
+    fields.push(current);
+    fields
+}
+
+/// CSV columns: id, date, type, amount, description, category_id, category_name
+pub fn db_transactions_to_csv(conn: &Connection) -> String {
+    let transactions = db_get_transactions(conn);
+    let mut lines = vec![
+        "id,date,type,amount,description,category_id,category_name".to_string(),
+    ];
+    for t in transactions {
+        lines.push(format!(
+            "{},{},{},{:.2},{},{},{}",
+            csv_escape(&t.id),
+            csv_escape(&t.date),
+            csv_escape(&t.transaction_type),
+            t.amount,
+            csv_escape(t.description.as_deref().unwrap_or("")),
+            csv_escape(&t.category_id),
+            csv_escape(&t.category_name),
+        ));
+    }
+    lines.join("\n")
+}
+
+pub fn db_import_transactions_csv(conn: &Connection, csv: &str) -> ImportSummary {
+    let mut inserted = 0i64;
+    let mut skipped = 0i64;
+    let mut errors: Vec<String> = vec![];
+
+    let lines: Vec<&str> = csv.lines().collect();
+    if lines.is_empty() {
+        return ImportSummary { inserted, skipped, errors };
+    }
+
+    let header = parse_csv_row(lines[0]);
+    let col = |name: &str| -> Option<usize> { header.iter().position(|h| h.trim() == name) };
+
+    let idx_id       = col("id");
+    let idx_date     = col("date");
+    let idx_type     = col("type");
+    let idx_amount   = col("amount");
+    let idx_desc     = col("description");
+    let idx_cat_id   = col("category_id");
+    let idx_cat_name = col("category_name");
+
+    if idx_date.is_none() || idx_type.is_none() || idx_amount.is_none() {
+        errors.push("Missing required columns: date, type, amount".to_string());
+        return ImportSummary { inserted, skipped, errors };
+    }
+
+    let get = |fields: &[String], idx: Option<usize>| -> String {
+        idx.and_then(|i| fields.get(i)).cloned().unwrap_or_default()
+    };
+
+    let now_str = now_ms().to_string();
+
+    for (line_no, line) in lines.iter().enumerate().skip(1) {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let fields = parse_csv_row(line);
+
+        let id = {
+            let raw = get(&fields, idx_id);
+            if raw.is_empty() {
+                format!("csv-{}-{}", now_ms(), line_no)
+            } else {
+                raw
+            }
+        };
+
+        let date     = get(&fields, idx_date);
+        let tx_type  = get(&fields, idx_type);
+        let amount_s = get(&fields, idx_amount);
+        let desc     = get(&fields, idx_desc);
+        let cat_id   = get(&fields, idx_cat_id);
+        let cat_name = get(&fields, idx_cat_name);
+
+        let amount: f64 = match amount_s.parse() {
+            Ok(v) => v,
+            Err(_) => {
+                errors.push(format!("line {}: invalid amount '{}'", line_no + 1, amount_s));
+                skipped += 1;
+                continue;
+            }
+        };
+
+        if tx_type != "expense" && tx_type != "income" {
+            errors.push(format!("line {}: invalid type '{}'", line_no + 1, tx_type));
+            skipped += 1;
+            continue;
+        }
+
+        // Resolve category_id: try by id, then by name, then create, then fallback
+        let resolved_cat = if !cat_id.is_empty() {
+            let exists: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM expense_categories WHERE id = ?1",
+                    params![cat_id],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap_or(0)
+                > 0;
+            if exists {
+                cat_id.clone()
+            } else {
+                resolve_or_create_category(conn, &cat_name, &tx_type)
+            }
+        } else {
+            resolve_or_create_category(conn, &cat_name, &tx_type)
+        };
+
+        let desc_opt: Option<&str> = if desc.is_empty() { None } else { Some(&desc) };
+
+        match conn.execute(
+            "INSERT OR IGNORE INTO transactions
+               (id, amount, description, category_id, date, type, created_at, sort_order)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,0)",
+            params![id, amount, desc_opt, resolved_cat, date, tx_type, now_str],
+        ) {
+            Ok(n) => if n > 0 { inserted += 1 } else { skipped += 1 },
+            Err(e) => {
+                errors.push(format!("line {}: {}", line_no + 1, e));
+                skipped += 1;
+            }
+        }
+    }
+
+    ImportSummary { inserted, skipped, errors }
+}
+
+/// Find category by name (case-insensitive) or create it; falls back to built-in "other".
+fn resolve_or_create_category(conn: &Connection, name: &str, tx_type: &str) -> String {
+    if !name.is_empty() {
+        let found: Option<String> = conn
+            .query_row(
+                "SELECT id FROM expense_categories
+                 WHERE LOWER(name) = LOWER(?1) AND type = ?2 LIMIT 1",
+                params![name, tx_type],
+                |r| r.get(0),
+            )
+            .ok();
+        if let Some(id) = found {
+            return id;
+        }
+        // Create the category with a deterministic id
+        let new_id = format!(
+            "import-{}-{}",
+            tx_type,
+            name.to_lowercase()
+                .chars()
+                .map(|c| if c.is_alphanumeric() { c } else { '-' })
+                .collect::<String>()
+        );
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO expense_categories (id, name, type, is_default, sort_order)
+             VALUES (?1,?2,?3,0,999)",
+            params![new_id, name, tx_type],
+        );
+        return new_id;
+    }
+    // Fallback to built-in defaults
+    if tx_type == "income" {
+        "def-inc-other".to_string()
+    } else {
+        "def-exp-other".to_string()
     }
 }
 
