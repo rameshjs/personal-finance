@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-use crate::models::{Investment, OtherInvestment};
+use crate::models::{ExpenseCategory, Investment, OtherInvestment, Transaction};
 
 pub fn db_init(conn: &Connection) {
     conn.execute_batch(
@@ -33,7 +33,41 @@ pub fn db_init(conn: &Connection) {
             last_updated            INTEGER,
             fetch_error             INTEGER NOT NULL DEFAULT 0,
             sort_order              INTEGER NOT NULL DEFAULT 0
-        );",
+        );
+        CREATE TABLE IF NOT EXISTS expense_categories (
+            id         TEXT    PRIMARY KEY,
+            name       TEXT    NOT NULL,
+            type       TEXT    NOT NULL,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            sort_order INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS transactions (
+            id          TEXT    PRIMARY KEY,
+            amount      REAL    NOT NULL,
+            description TEXT,
+            category_id TEXT    NOT NULL,
+            date        TEXT    NOT NULL,
+            type        TEXT    NOT NULL,
+            created_at  TEXT    NOT NULL,
+            sort_order  INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT OR IGNORE INTO expense_categories (id, name, type, is_default, sort_order) VALUES
+            ('def-exp-food',          'Food & Dining', 'expense', 1,  0),
+            ('def-exp-transport',     'Transport',     'expense', 1,  1),
+            ('def-exp-utilities',     'Utilities',     'expense', 1,  2),
+            ('def-exp-shopping',      'Shopping',      'expense', 1,  3),
+            ('def-exp-entertainment', 'Entertainment', 'expense', 1,  4),
+            ('def-exp-healthcare',    'Healthcare',    'expense', 1,  5),
+            ('def-exp-education',     'Education',     'expense', 1,  6),
+            ('def-exp-rent',          'Rent',          'expense', 1,  7),
+            ('def-exp-subs',          'Subscriptions', 'expense', 1,  8),
+            ('def-exp-other',         'Other',         'expense', 1,  9),
+            ('def-inc-salary',        'Salary',        'income',  1, 10),
+            ('def-inc-freelance',     'Freelance',     'income',  1, 11),
+            ('def-inc-dividends',     'Dividends',     'income',  1, 12),
+            ('def-inc-rental',        'Rental Income', 'income',  1, 13),
+            ('def-inc-business',      'Business',      'income',  1, 14),
+            ('def-inc-other',         'Other Income',  'income',  1, 15);",
     )
     .expect("DB init failed");
 }
@@ -94,6 +128,58 @@ pub fn db_get_all_other(conn: &Connection) -> Vec<OtherInvestment> {
             current_price: row.get(10)?,
             last_updated: row.get(11)?,
             fetch_error: row.get::<_, i32>(12).unwrap_or(0) == 1,
+        })
+    })
+    .expect("query failed")
+    .filter_map(|r| r.ok())
+    .collect()
+}
+
+pub fn db_get_categories(conn: &Connection) -> Vec<ExpenseCategory> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, type, is_default, sort_order
+             FROM expense_categories
+             ORDER BY sort_order ASC, rowid ASC",
+        )
+        .expect("prepare failed");
+
+    stmt.query_map([], |row| {
+        Ok(ExpenseCategory {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            category_type: row.get(2)?,
+            is_default: row.get::<_, i32>(3).unwrap_or(0) == 1,
+            sort_order: row.get(4)?,
+        })
+    })
+    .expect("query failed")
+    .filter_map(|r| r.ok())
+    .collect()
+}
+
+pub fn db_get_transactions(conn: &Connection) -> Vec<Transaction> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.id, t.amount, t.description, t.category_id,
+                    COALESCE(c.name, '') AS category_name,
+                    t.date, t.type, t.created_at
+             FROM transactions t
+             LEFT JOIN expense_categories c ON t.category_id = c.id
+             ORDER BY t.date DESC, t.sort_order DESC, t.rowid DESC",
+        )
+        .expect("prepare failed");
+
+    stmt.query_map([], |row| {
+        Ok(Transaction {
+            id: row.get(0)?,
+            amount: row.get(1)?,
+            description: row.get(2)?,
+            category_id: row.get(3)?,
+            category_name: row.get(4)?,
+            date: row.get(5)?,
+            transaction_type: row.get(6)?,
+            created_at: row.get(7)?,
         })
     })
     .expect("query failed")

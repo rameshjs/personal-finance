@@ -36,6 +36,35 @@ pub struct AppState {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ExpenseCategory {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub category_type: String, // "expense" | "income"
+    #[serde(rename = "isDefault")]
+    pub is_default: bool,
+    #[serde(rename = "sortOrder")]
+    pub sort_order: i32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Transaction {
+    pub id: String,
+    pub amount: f64,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(rename = "categoryId")]
+    pub category_id: String,
+    #[serde(rename = "categoryName", default)]
+    pub category_name: String, // populated by JOIN on query
+    pub date: String, // YYYY-MM-DD
+    #[serde(rename = "type")]
+    pub transaction_type: String, // "expense" | "income"
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OtherInvestment {
     pub id: String,
     pub name: String,
