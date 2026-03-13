@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import type { NewOtherInvestment } from '../../types/other-investment';
+import type { NewOtherInvestment, OtherInvestment } from '../../types/other-investment';
 import { api } from '../../services/tauri';
 import AddOtherInvestmentModal from './AddOtherInvestmentModal';
+import SellOtherInvestmentModal from './SellOtherInvestmentModal';
 import OtherPortfolioSummary from './OtherPortfolioSummary';
 import OtherInvestmentTable from './OtherInvestmentTable';
 
@@ -11,7 +12,8 @@ const SYNC_INTERVAL_MS = 60_000;
 
 export default function OtherInvestmentSection() {
   const queryClient = useQueryClient();
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [sellInvestment, setSellInvestment] = useState<OtherInvestment | null>(null);
 
   const {
     data: investments = [],
@@ -25,11 +27,16 @@ export default function OtherInvestmentSection() {
     refetchInterval: SYNC_INTERVAL_MS,
   });
 
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['other-investments'] });
+    queryClient.invalidateQueries({ queryKey: ['consolidated-report'] });
+  };
+
   const addMutation = useMutation({
     mutationFn: (inv: NewOtherInvestment) => api.addOtherInvestment(inv),
     onSuccess: (data) => {
       queryClient.setQueryData(['other-investments'], data);
-      setIsModalOpen(false);
+      setIsAddOpen(false);
     },
   });
 
@@ -38,10 +45,17 @@ export default function OtherInvestmentSection() {
     onSuccess: (data) => queryClient.setQueryData(['other-investments'], data),
   });
 
+  const sellMutation = useMutation({
+    mutationFn: (params: Parameters<typeof api.sellOtherInvestment>[0]) => api.sellOtherInvestment(params),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['other-investments'], data);
+      setSellInvestment(null);
+      invalidate();
+    },
+  });
+
   const isSyncing = isFetching || addMutation.isPending;
   const lastSyncTime = dataUpdatedAt > 0 ? new Date(dataUpdatedAt) : null;
-
-  // Only show sync button if there are gold entries (others don't need price sync)
   const hasGold = investments.some((inv) => inv.type === 'gold');
 
   return (
@@ -66,7 +80,7 @@ export default function OtherInvestmentSection() {
               {isSyncing ? 'SYNCING' : 'SYNC'}
             </Button>
           )}
-          <Button size="sm" onClick={() => setIsModalOpen(true)} className="tracking-widest">
+          <Button size="sm" onClick={() => setIsAddOpen(true)} className="tracking-widest">
             + ADD
           </Button>
         </div>
@@ -80,15 +94,25 @@ export default function OtherInvestmentSection() {
           <OtherInvestmentTable
             investments={investments}
             onDelete={(id) => deleteMutation.mutate(id)}
+            onSell={(inv) => setSellInvestment(inv)}
           />
         </>
       )}
 
       <AddOtherInvestmentModal
-        open={isModalOpen}
-        onOpenChange={setIsModalOpen}
+        open={isAddOpen}
+        onOpenChange={setIsAddOpen}
         onAdd={(inv) => addMutation.mutate(inv)}
       />
+
+      {sellInvestment && (
+        <SellOtherInvestmentModal
+          open={!!sellInvestment}
+          onOpenChange={(open) => { if (!open) setSellInvestment(null); }}
+          investment={sellInvestment}
+          onSell={(params) => sellMutation.mutate(params)}
+        />
+      )}
     </div>
   );
 }

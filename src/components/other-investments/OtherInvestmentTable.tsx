@@ -11,6 +11,7 @@ import OtherInvestmentRow from './OtherInvestmentRow';
 interface Props {
   investments: OtherInvestment[];
   onDelete: (id: string) => void;
+  onSell: (investment: OtherInvestment) => void;
 }
 
 function EmptyState() {
@@ -23,7 +24,7 @@ function EmptyState() {
   );
 }
 
-export default function OtherInvestmentTable({ investments, onDelete }: Props) {
+export default function OtherInvestmentTable({ investments, onDelete, onSell }: Props) {
   if (investments.length === 0) return <EmptyState />;
 
   return (
@@ -40,7 +41,7 @@ export default function OtherInvestmentTable({ investments, onDelete }: Props) {
         </TableHeader>
         <TableBody>
           {investments.map((inv) => (
-            <OtherInvestmentRow key={inv.id} investment={inv} onDelete={onDelete} />
+            <OtherInvestmentRow key={inv.id} investment={inv} onDelete={onDelete} onSell={onSell} />
           ))}
         </TableBody>
       </Table>

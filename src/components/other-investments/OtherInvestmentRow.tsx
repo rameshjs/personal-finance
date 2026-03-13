@@ -12,6 +12,7 @@ import { formatINR } from '../../utils/format';
 interface Props {
   investment: OtherInvestment;
   onDelete: (id: string) => void;
+  onSell: (investment: OtherInvestment) => void;
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -67,7 +68,7 @@ function getSubLabel(inv: OtherInvestment): string {
   }
 }
 
-export default function OtherInvestmentRow({ investment, onDelete }: Props) {
+export default function OtherInvestmentRow({ investment, onDelete, onSell }: Props) {
   const invested = calcInvested(investment);
   const currentValue = calcCurrentValue(investment);
   const gain = currentValue - invested;
@@ -98,15 +99,26 @@ export default function OtherInvestmentRow({ investment, onDelete }: Props) {
         <div className="opacity-80">{isPositive ? '+' : ''}{gainPct.toFixed(2)}%</div>
       </TableCell>
       <TableCell className="px-3 py-2 text-right">
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={() => onDelete(investment.id)}
-          className="text-muted-foreground hover:text-destructive"
-          title="Remove"
-        >
-          ✕
-        </Button>
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onSell(investment)}
+            className="text-muted-foreground hover:text-amber-500"
+            title="Liquidate"
+          >
+            ₹
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onDelete(investment.id)}
+            className="text-muted-foreground hover:text-destructive"
+            title="Remove"
+          >
+            ✕
+          </Button>
+        </div>
       </TableCell>
     </TableRow>
   );
