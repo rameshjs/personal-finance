@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bunx --bun shadcn@latest init --preset awKZXik --template vite)",
+      "Bash(bunx --bun tailwindcss@latest init -p)",
+      "Bash(bun add:*)"
+    ]
+  }
+}
