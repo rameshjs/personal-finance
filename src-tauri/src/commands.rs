@@ -1,10 +1,10 @@
 use rusqlite::params;
 use serde::Deserialize;
-use tauri::State;
+use tauri::{Manager, State};
 
-use crate::db::{db_get_all, db_get_all_other, db_get_categories, db_get_dashboard_report, db_get_transactions, now_ms};
+use crate::db::{db_export_all, db_get_all, db_get_all_other, db_get_categories, db_get_dashboard_report, db_get_transactions, db_import_all, db_import_transactions_csv, db_transactions_to_csv, now_ms};
 use crate::market::{fetch_other_price, fetch_price};
-use crate::models::{AppState, DashboardReport, ExpenseCategory, Investment, MFSearchResult, OtherInvestment, Transaction};
+use crate::models::{AppState, DashboardReport, ExpenseCategory, ExportBundle, ImportSummary, Investment, MFSearchResult, OtherInvestment, Transaction};
 
 #[tauri::command]
 pub async fn get_investments(state: State<'_, AppState>) -> Result<Vec<Investment>, String> {
@@ -400,6 +400,74 @@ pub async fn get_dashboard_report(
         to_date.as_deref(),
         category_id.as_deref(),
     ))
+}
+
+#[tauri::command]
+pub async fn export_data(state: State<'_, AppState>) -> Result<ExportBundle, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(db_export_all(&conn))
+}
+
+#[tauri::command]
+pub async fn import_data(
+    state: State<'_, AppState>,
+    bundle: ExportBundle,
+) -> Result<ImportSummary, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(db_import_all(&conn, bundle))
+}
+
+#[tauri::command]
+pub async fn export_transactions_csv(state: State<'_, AppState>) -> Result<String, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(db_transactions_to_csv(&conn))
+}
+
+#[tauri::command]
+pub async fn import_transactions_csv(
+    state: State<'_, AppState>,
+    csv: String,
+) -> Result<ImportSummary, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(db_import_transactions_csv(&conn, &csv))
+}
+
+#[tauri::command]
+pub async fn save_export_json(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<String, String> {
+    let bundle = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        db_export_all(&conn)
+    };
+    let mut out = serde_json::to_value(&bundle).map_err(|e| e.to_string())?;
+    if let serde_json::Value::Object(ref mut map) = out {
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        map.insert(
+            "exported_at".to_string(),
+            serde_json::Value::String(ms.to_string()),
+        );
+    }
+    let content = serde_json::to_string_pretty(&out).map_err(|e| e.to_string())?;
+    std::fs::write(&path, content.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+#[tauri::command]
+pub async fn save_export_csv(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<String, String> {
+    let csv = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        db_transactions_to_csv(&conn)
+    };
+    std::fs::write(&path, csv.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(path)
 }
 
 #[tauri::command]

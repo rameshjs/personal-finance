@@ -14,6 +14,7 @@ use models::AppState;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let db_dir = app.path().app_data_dir().expect("No app data dir");
             std::fs::create_dir_all(&db_dir).ok();
@@ -40,6 +41,12 @@ pub fn run() {
             commands::add_transaction,
             commands::delete_transaction,
             commands::get_dashboard_report,
+            commands::export_data,
+            commands::import_data,
+            commands::export_transactions_csv,
+            commands::import_transactions_csv,
+            commands::save_export_json,
+            commands::save_export_csv,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
